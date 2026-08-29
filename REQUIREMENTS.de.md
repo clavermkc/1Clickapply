@@ -2,7 +2,7 @@
 
 *[Version française](REQUIREMENTS.md)*
 
-Dieses Projekt ist eine **Java-/Gradle-Anwendung** (keine Python-`requirements.txt`). Dieses Dokument listet auf, was zum Ausführen der aktuellen Projektversion notwendig ist, sowie was für die noch nicht implementierten Module benötigt werden wird.
+Dieses Projekt ist eine **Java-Anwendung** . Dieses Dokument listet auf, was zum Ausführen der aktuellen Projektversion notwendig ist, sowie was für die noch nicht implementierten Module benötigt werden wird.
 
 ## Notwendig für die aktuelle Version (Sourcing + Scraping)
 
