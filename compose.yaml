@@ -1,0 +1,17 @@
+
+version: '3'
+#services:
+#  postgres:
+  #  image: postgres:latest
+   # container_name: oneclickapply-db
+   # environment:
+   #   POSTGRES_DB: oneclickapply_db
+    #  POSTGRES_USER: oneclick_user
+     # POSTGRES_PASSWORD: oneclick_pass
+   # ports:
+    #  - "5432:5432"
+   # volumes:
+    #  - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
