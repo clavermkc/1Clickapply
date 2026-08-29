@@ -1,6 +1,6 @@
 # Prérequis (Requirements)
 
-Ce projet est une application **Java / Gradle** (pas de `requirements.txt` Python). Ce document liste ce qui est nécessaire pour faire tourner la version actuelle du projet, ainsi que ce qui sera nécessaire pour les modules pas encore implémentés.
+Ce projet est une application **Java ** . Ce document liste ce qui est nécessaire pour faire tourner la version actuelle du projet, ainsi que ce qui sera nécessaire pour les modules pas encore implémentés.
 
 ## Nécessaire pour la version actuelle (sourcing + scraping)
 
