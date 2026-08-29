@@ -1,4 +1,5 @@
 # 1ClickApply
+*[Deutsche Version](REQUIREMENTS.de.md)*
 
 Plateforme de sourcing automatisé et de candidature spontanée (*Initiativbewerbung*) ciblant les entreprises tech/IT de Basse-Saxe (Niedersachsen) et des régions voisines (Bremen, Hamburg).
 
