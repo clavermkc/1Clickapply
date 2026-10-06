@@ -73,6 +73,9 @@ public class SourcingService {
                 String streetAndNum = (street != null ? street : "") + (houseNumber != null ? " " + houseNumber : "");
                 String postcode = element.getTag("addr:postcode");
                 String elementCity = element.getTag("addr:city") != null ? element.getTag("addr:city") : city;
+                if (isIgnoredDomain(domain)) {
+                    continue;
+                }
 
                 Company company = new Company(
                         name,
@@ -83,6 +86,7 @@ public class SourcingService {
                         elementCity
                 );
 
+                company.setSource("OSM");
                 savedCompanies.add(companyRepository.save(company));
             }
 
@@ -97,20 +101,27 @@ public class SourcingService {
 
     private String buildQuery(String city) {
         return """
-            [out:json][timeout:60];
-            area["name"="%s"]["admin_level"~"[4|6|8]"]->.searchArea;
+            [out:json][timeout:90];
+            area["name"="%s"]["admin_level"~"^(4|6|8)$"]->.searchArea;
             (
-              node["office"="it"](area.searchArea);
-              way["office"="it"](area.searchArea);
-              node["office"="company"](area.searchArea);
-              way["office"="company"](area.searchArea);
-              node["office"="coworking"](area.searchArea);
-              way["office"="coworking"](area.searchArea);
-              node["shop"="computer"](area.searchArea);
-              way["shop"="computer"](area.searchArea);
+              nwr["office"="it"]["website"](area.searchArea);
+              nwr["office"="it"]["contact:website"](area.searchArea);
+              nwr["office"="company"]["website"](area.searchArea);
+              nwr["office"="company"]["contact:website"](area.searchArea);
+              nwr["office"="engineer"]["website"](area.searchArea);
+              nwr["office"="consulting"]["website"](area.searchArea);
+              nwr["office"="research"]["website"](area.searchArea);
+              nwr["office"="telecommunication"]["website"](area.searchArea);
+              nwr["office"="coworking"]["website"](area.searchArea);
+              nwr["shop"="computer"]["website"](area.searchArea);
             );
             out center tags;
             """.formatted(city);
+    }
+
+    /** Réseaux sociaux / annuaires : pas un vrai site d'entreprise. */
+    private boolean isIgnoredDomain(String domain) {
+        return domain.matches(".*(facebook|instagram|linkedin|xing|google|youtube|twitter|x\\.com|t-online|gmx|web\\.de).*");
     }
 
     private String extractDomain(String url) {

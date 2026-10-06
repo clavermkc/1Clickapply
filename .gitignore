@@ -37,3 +37,9 @@ out/
 .vscode/
 .env
 *.sh
+### 1ClickApply ###
+review.csv
+*.pdf
+data/
+CV/
+*.bak

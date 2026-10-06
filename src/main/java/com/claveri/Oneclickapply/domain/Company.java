@@ -35,6 +35,27 @@ public class Company {
     @Column(nullable = false)
     private String region = "Niedersachsen";
 
+    /** Technologies détectées sur le site (ex: "Java, Spring, Docker"). */
+    private String techStack;
+
+    /** Score de correspondance avec le profil (plus haut = mieux). */
+    private Integer matchScore;
+
+    /** true si la page carrière mentionne Werkstudent / studentische Mitarbeit. */
+    private Boolean hiresStudents;
+
+    /** true = l'entreprise a demandé à ne plus être contactée (opt-out). Plus aucun mail, jamais. */
+    private Boolean optedOut = false;
+
+    /** Origine : "OSM" (OpenStreetMap) ou "BA" (Bundesagentur für Arbeit). */
+    private String source;
+
+    /** Titre d'une offre tech publiée par l'entreprise sur la Jobbörse (si source = BA). */
+    private String baJobTitle;
+
+    /** Date du dernier scraping (null = jamais scrapé). */
+    private LocalDateTime scrapedAt;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

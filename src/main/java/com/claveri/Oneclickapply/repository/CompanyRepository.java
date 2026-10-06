@@ -11,6 +11,9 @@ import java.util.Optional;
 public interface CompanyRepository extends JpaRepository<Company, Long> {
     Optional<Company> findByDomain(String domain);
     boolean existsByDomain(String domain);
+    List<Company> findByPrimaryEmailIgnoreCase(String email);
     List<Company> findByCityIgnoreCase(String city);
     List<Company> findByPrimaryEmailIsNotNull();
+    List<Company> findByScrapedAtIsNull();
+    List<Company> findByPrimaryEmailIsNotNullAndMatchScoreGreaterThanEqualOrderByMatchScoreDesc(int minScore);
 }

@@ -1,0 +1,16 @@
+# ---------- Étape 1 : build (avec le wrapper Gradle du projet) ----------
+FROM eclipse-temurin:21-jdk-jammy AS build
+WORKDIR /app
+COPY gradlew settings.gradle build.gradle ./
+COPY gradle gradle
+RUN chmod +x gradlew && ./gradlew --no-daemon dependencies > /dev/null 2>&1 || true
+COPY src src
+RUN ./gradlew --no-daemon bootJar -x test
+
+# ---------- Étape 2 : exécution (image légère, JRE seulement) ----------
+FROM eclipse-temurin:21-jre-jammy
+WORKDIR /app
+COPY build/libs/1clickapply-0.0.1-SNAPSHOT.jar app.jar
+# Aucun mode imposé : chaque service de compose.yaml passe le sien (--mode=send, --mode=scrape, ...)
+ENTRYPOINT ["java", "-jar", "app.jar"]
+CMD ["--mode=help"]
