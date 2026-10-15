@@ -1,126 +1,203 @@
 # 1ClickApply
-*[Deutsche Version](REQUIREMENTS.de.md)*
+*[Deutsche Version](README.de.md)*
 
-Plateforme de sourcing automatisé et de candidature spontanée (*Initiativbewerbung*) ciblant les entreprises tech/IT de Basse-Saxe (Niedersachsen) et des régions voisines (Bremen, Hamburg).
+Pipeline en ligne de commande pour des candidatures spontanées (*Initiativbewerbung*, Werkstudent Softwareentwicklung) auprès d'entreprises tech de Basse-Saxe et de Brême.
 
-L'objectif à terme : extraire des entreprises via OpenStreetMap, récupérer leurs coordonnées et emails RH, générer des lettres de motivation personnalisées via un LLM, les compiler en PDF, puis les envoyer par lots contrôlés.
+Le pipeline :
+1. trouve des entreprises via OpenStreetMap (Overpass) et via l'API emploi de la Bundesagentur für Arbeit ;
+2. visite leur site public pour en extraire un e-mail de contact, détecter leur stack et calculer un score ;
+3. génère un mail personnalisé à partir d'un modèle ;
+4. exporte les brouillons dans un CSV pour **validation manuelle** ;
+5. envoie uniquement les mails validés, via Gmail, en joignant le CV, avec une limite par jour et un délai entre deux envois.
 
-> ⚠️ **Ce dépôt est un travail en cours.** Seul le module de sourcing/scraping est implémenté à ce jour. Voir la section [Limitations de la version actuelle](#limitations-de-la-version-actuelle) avant de juger le comportement de l'appli.
+Le guide d'utilisation au quotidien se trouve dans [`PIPELINE.md`](PIPELINE.md).
 
-## État actuel du projet
+## Stack
 
-### Implémenté
+| | |
+|---|---|
+| Langage | Java 21 (toolchain Gradle) |
+| Framework | Spring Boot 4.1.1 : Data JPA, Mail, Actuator, Web MVC (serveur web désactivé : `spring.main.web-application-type=none`) |
+| Scraping | Jsoup (via `spring-ai-jsoup-document-reader`, Spring AI BOM 2.0.0). Aucun LLM n'est utilisé. |
+| Autres librairies | Apache Commons CSV, Lombok, `spring-dotenv` |
+| Base de données | PostgreSQL ([Neon](https://neon.com/) par défaut), schéma géré par Hibernate (`ddl-auto=update`) |
+| Build | Gradle 9.7 (wrapper `./gradlew`) |
+| Conteneur | `Dockerfile` (exécution seule, le jar est construit localement) + `compose.yaml` (un service par étape) |
 
-| Module | Description | État |
+## Prérequis
+
+- JDK 21 (le toolchain Gradle peut le télécharger)
+- Une base PostgreSQL accessible (Neon, Supabase, ou locale)
+- Un compte Gmail avec la validation en 2 étapes et un [mot de passe d'application](https://myaccount.google.com/apppasswords), nécessaire uniquement pour `--mode=send`
+- Un CV en PDF, joint à chaque mail
+- Un accès réseau sortant vers `overpass-api.de`, `rest.arbeitsagentur.de`, les sites des entreprises et `smtp.gmail.com:587`
+- Docker *(facultatif)*
+
+Voir aussi [`REQUIREMENTS.md`](REQUIREMENTS.md).
+
+## Variables d'environnement
+
+Elles sont lues depuis un fichier `.env` à la racine (`spring.config.import=optional:file:.env[.properties]` + `spring-dotenv`). Ce fichier est ignoré par git et exclu de l'image Docker.
+
+| Variable | Requise | Usage |
 |---|---|---|
-| **Sourcing** (`service/SourcingService`) | Interroge l'API Overpass (OpenStreetMap) pour trouver des entreprises (`office=it`, `office=company`, `office=coworking`, `shop=computer`) dans une ville donnée, et les insère en base. | ✅ |
-| **Scraping** (`service/ScraperService`) | Visite le site web de chaque entreprise (page d'accueil + jusqu'à 3 pages type `karriere`, `impressum`, `kontakt`...) via Jsoup et tente d'en extraire un email RH et un contact. | ✅ (résultats limités, voir plus bas) |
-| **Persistance** (`domain`, `repository`) | Entités JPA `Company` et `CoverLetter` avec statut de cycle de vie (`ApplicationStatus`), base PostgreSQL (Neon). | ✅ |
+| `NEON_DB_URL` | oui | URL JDBC, ex. `jdbc:postgresql://<host>:5432/<db>?sslmode=require&channel_binding=require` |
+| `PGUSER` | oui | Utilisateur de la base |
+| `PGPASSWORD` | oui | Mot de passe de la base |
+| `GMAIL_USER` | oui | Adresse d'envoi (`spring.mail.username`, `outreach.sender-email`) |
+| `GMAIL_APP_PASSWORD` | pour `send` | Mot de passe d'application Gmail |
+| `CV_PATH` | pour `send` | Chemin du CV PDF (défaut `./CV_Claver.pdf`). Avec Docker : `CV/<fichier>.pdf` |
+| `PGHOST`, `PGDATABASE`, `PGSSLMODE`, `PGCHANNELBINDING`, `NEON_DB_PORT` | non | Servent seulement à composer `NEON_DB_URL` |
 
-### Pas encore implémenté
+Toute propriété `outreach.*` peut aussi être surchargée par variable d'environnement, par exemple `OUTREACH_REVIEW_CSV_PATH` ou `OUTREACH_FOLLOW_UP_AFTER_DAYS`, comme dans `compose.yaml`.
 
-- **Module IA / Ollama (Spring AI)** — pas de connecteur `OllamaChatModel`, pas de service de réécriture de lettre. Seule la dépendance `spring-ai-jsoup-document-reader` est présente dans `build.gradle`, à titre d'outil de scraping/parsing, pas pour l'IA.
-- **Module PDF / LaTeX** — pas de `LatexTemplateEngine`, `LatexSanitizerUtils` ni `PdfCompilerService`. Aucune compilation `pdflatex` n'a lieu.
-- **Module Delivery / Anti-spam** — pas d'envoi SMTP, pas de rate limiting.
-- **API REST** — aucun contrôleur (`@RestController`) n'existe encore ; le projet ne s'utilise pour l'instant qu'en local via `TestSourcingRunner` (un `CommandLineRunner` de test lancé au démarrage de l'application).
-- **Frontend** — pas de dossier Next.js dans ce dépôt.
+### Paramètres de campagne (`application.properties`, préfixe `outreach.`)
 
-L'architecture cible (avec IA, PDF et delivery) reste documentée dans `HELP.md` (non versionné) à titre de spécification, mais ne reflète pas encore le code.
+| Propriété | Valeur actuelle | Rôle |
+|---|---|---|
+| `cities` | Bremen, Hannover, Oldenburg, Osnabrück, … | Villes interrogées par `--mode=source` |
+| `ba-queries` | Werkstudent Java, Spring Boot, Kotlin, … | Recherches envoyées à la Bundesagentur |
+| `min-score` | `1` | Score minimal pour générer un brouillon |
+| `daily-limit` | `40` | Nombre maximal de mails par jour, relances comprises |
+| `min-delay-seconds` / `max-delay-seconds` | `300` / `600` | Délai aléatoire entre deux envois |
+| `follow-up-after-days` | `9999` | Délai avant relance (`9999` = relances désactivées) |
+| `scrape-delay-millis` | `1000` | Pause entre deux requêtes de scraping |
+| `cv-path`, `review-csv-path` | `${CV_PATH}`, `./data/review.csv` | Fichiers utilisés |
+| `sender-name`, `phone`, `portfolio-url`, `github-url`, `linkedin-url` | — | Signature des mails |
 
-## Limitations de la version actuelle
-
-- **Taux d'extraction d'emails très faible** : sur un lot d'environ 400 entreprises scrapées, le service n'a réussi à extraire un email exploitable que pour **3 à 5 entreprises**. Causes probables : beaucoup de sites n'exposent pas d'email en clair dans le HTML (formulaires de contact, images, obfuscation avancée, protections anti-bot), le crawl est limité à la page d'accueil + 3 sous-pages, et il n'y a pas de fallback JavaScript (pas de Playwright malgré ce qui est mentionné dans `HELP.md`).
-- **Pas de rendu JS** : le scraper utilise uniquement Jsoup (HTML statique) ; les sites en SPA (React/Vue/Angular côté client) ne sont pas correctement scrapés.
-- **Pas de déduplication avancée** : la déduplication se fait uniquement par nom de domaine.
-- **`TestSourcingRunner` s'exécute à chaque démarrage** de l'application (`CommandLineRunner`), ce qui déclenche automatiquement un cycle sourcing + scraping sur `Hannover` — pratique pour tester, mais à retirer avant tout usage en production.
-
-## Stack technique
-
-- **Backend** : Java 21, Spring Boot 4.1.1, Spring Data JPA, Spring AI BOM 2.0.0 (utilisé uniquement pour `spring-ai-jsoup-document-reader` pour l'instant).
-- **Scraping** : Jsoup.
-- **Sourcing de données** : Overpass API (OpenStreetMap).
-- **Base de données** : PostgreSQL, hébergée sur [Neon](https://neon.com/).
-- **Build** : Gradle (wrapper fourni).
-
-## Configuration
-
-Le projet lit sa configuration de base de données depuis des variables d'environnement (via `spring-dotenv`), chargées depuis un fichier `.env` à la racine (non versionné). Deux options sont possibles selon vos préférences.
-
-### Option A — Base de données cloud (Neon, Supabase, etc.)
-
-C'est la configuration par défaut du projet. Créez un fichier `.env` sur ce modèle :
-
-```dotenv
-PGHOST=<host-fourni-par-le-provider>
-PGDATABASE=<nom-de-la-base>
-PGUSER=<utilisateur>
-PGPASSWORD=<mot-de-passe>
-PGSSLMODE=require
-PGCHANNELBINDING=require
-NEON_DB_PORT=5432
-NEON_DB_URL="jdbc:postgresql://${PGHOST}:${NEON_DB_PORT}/${PGDATABASE}?sslmode=require&channel_binding=require"
-```
-
-Ces variables sont consommées dans `src/main/resources/application.properties` :
-
-```properties
-spring.datasource.url=${NEON_DB_URL}
-spring.datasource.username=${PGUSER}
-spring.datasource.password=${PGPASSWORD}
-```
-
-Ça fonctionne aussi bien avec [Neon](https://neon.com/) qu'avec [Supabase](https://supabase.com/) ou tout autre PostgreSQL managé : il suffit de renseigner l'URL JDBC, l'utilisateur et le mot de passe fournis par le provider.
-
-### Option B — Base de données locale via Docker
-
-Un `compose.yaml` est fourni mais **commenté par défaut** (le projet utilise la BDD cloud par défaut). Pour l'utiliser :
-
-1. Décommentez le service `postgres` dans `compose.yaml` :
-
-   ```yaml
-   services:
-     postgres:
-       image: postgres:latest
-       container_name: oneclickapply-db
-       environment:
-         POSTGRES_DB: oneclickapply_db
-         POSTGRES_USER: oneclick_user
-         POSTGRES_PASSWORD: oneclick_pass
-       ports:
-         - "5432:5432"
-       volumes:
-         - postgres_data:/var/lib/postgresql/data
-   ```
-
-2. Lancez le conteneur : `docker compose up -d`.
-3. Dans `src/main/resources/application.properties`, décommentez les lignes de connexion locale et commentez (ou supprimez) les lignes `${NEON_DB_URL}` / `${PGUSER}` / `${PGPASSWORD}` :
-
-   ```properties
-   spring.datasource.url=jdbc:postgresql://localhost:5432/oneclickapply_db
-   spring.datasource.username=oneclick_user
-   spring.datasource.password=oneclick_pass
-   ```
-
-   (Le projet dépend aussi de `spring-boot-docker-compose`, qui peut démarrer automatiquement les services définis dans `compose.yaml` au lancement de l'application si celui-ci est actif.)
-
-Voir `REQUIREMENTS.md` pour la liste complète des prérequis.
-
-## Lancer le projet
+## Installation
 
 ```bash
-./gradlew bootRun
+git clone <repo> && cd 1Clickapply
+# créer le fichier .env (voir ci-dessus)
+mkdir -p CV data && cp /chemin/vers/mon_cv.pdf CV/
+./gradlew build
 ```
 
-Au démarrage, `TestSourcingRunner` lance automatiquement :
-1. Une collecte Overpass sur la ville `Hannover`.
-2. Un scraping des 3 premières entreprises trouvées en base pour cette ville.
-3. Un affichage en logs du résultat (email et contact trouvés ou non).
+### Base locale (facultatif)
+
+Le `compose.yaml` actuel ne contient plus de service PostgreSQL. Pour une base locale, lancez un conteneur Postgres vous-même, par exemple :
+
+```bash
+docker run -d --name oneclickapply-db -p 5432:5432 \
+  -e POSTGRES_DB=oneclickapply_db -e POSTGRES_USER=oneclick_user -e POSTGRES_PASSWORD=oneclick_pass postgres
+```
+
+Puis, dans `application.properties`, activez les lignes `localhost` (actuellement commentées) à la place des lignes `${NEON_DB_URL}`.
+
+## Utilisation
+
+Le point d'entrée est `Application.java`. Tout le pipeline passe par `runner/PipelineRunner`, qui choisit l'étape selon l'argument `--mode` :
+
+```bash
+./gradlew bootRun --args="--mode=<mode> [options]"
+# ou, après ./gradlew bootJar :
+java -jar build/libs/1clickapply-0.0.1-SNAPSHOT.jar --mode=<mode> [options]
+```
+
+| Mode | Effet |
+|---|---|
+| `source` | Récupère les entreprises OSM (`office=it`, `office=company`, …) des villes de `outreach.cities`, avec une pause de 5 s entre deux villes |
+| `source-ba` | Ajoute les employeurs qui publient des offres tech sur la Bundesagentur für Arbeit |
+| `scrape` | Pour les entreprises pas encore scrapées : extrait un e-mail, détecte la stack, calcule le score, cherche une page Werkstudent |
+| `test-scrape --url=<url>` | Lance le scraper en mode debug sur une seule URL |
+| `stats` | Affiche des compteurs : entreprises, sans site, scrapées, avec e-mail, au-dessus du score |
+| `draft` | Génère un brouillon (`DRAFT`) par entreprise avec e-mail et score ≥ `min-score` |
+| `export` | Écrit `data/review.csv` (séparateur `;`, UTF-8) |
+| `import` | Relit `review.csv` : `x` → `APPROVED`, `n` → `SKIPPED` |
+| `send [--dry-run]` | Envoie les mails `APPROVED` dans la limite du jour. `--dry-run` ne fait qu'afficher ce qui serait envoyé |
+| `optout --email=… \| --domain=…` | Marque l'entreprise comme opt-out et efface son e-mail et son contact |
+| *(aucun)* / `help` | Affiche l'aide |
+
+Options : `--city=Bremen` (limite `source`, `source-ba` et `scrape` à une ville), `--limit=50` (nombre maximal d'entreprises à scraper, 200 par défaut).
+
+Colonnes de `review.csv` : `approve; id; company; city; website; score; stack; werkstudent_page; recipient; subject; body`. Les colonnes `recipient`, `subject` et `body` peuvent être corrigées avant l'import.
+
+### Avec Docker
+
+```bash
+./gradlew bootJar -x test          # le Dockerfile copie le jar déjà construit
+docker compose build
+docker compose run --rm source --mode=source --city=Hamburg
+docker compose run --rm scrape
+docker compose run --rm draft
+docker compose run --rm export     # -> ./data/review.csv
+docker compose run --rm import
+docker compose run --rm send --mode=send --dry-run
+docker compose run --rm send
+```
+
+Les services sont dans le profil `pipeline`, donc un simple `docker compose up` ne lance rien. `./CV` est monté en lecture seule et `./data` est partagé avec la machine hôte.
+
+## Tâches Gradle
+
+| Commande | Effet |
+|---|---|
+| `./gradlew bootRun --args="…"` | Lance l'application |
+| `./gradlew build` | Compile et lance les tests |
+| `./gradlew bootJar` | Produit `build/libs/1clickapply-0.0.1-SNAPSHOT.jar` |
+| `./gradlew test` | Lance les tests (JUnit 5) |
+
+## Tests
+
+```bash
+./gradlew test
+./gradlew test --tests '*ScraperServiceTest'
+```
+
+- `service/ScraperServiceTest` : tests unitaires hors ligne du scraper (e-mails obfusqués ou protégés par Cloudflare, priorité des adresses RH, scoring Java/JavaScript, parsing de `robots.txt`).
+- `ApplicationTests` : test de chargement du contexte, **désactivé** (`@Disabled`) parce qu'il a besoin d'une vraie base et du `.env`.
+
+## Structure du projet
+
+```
+├── build.gradle, settings.gradle, gradlew   # build Gradle
+├── Dockerfile, .dockerignore, compose.yaml  # image d'exécution + un service par étape
+├── PIPELINE.md                              # routine quotidienne et garde-fous légaux
+├── REQUIREMENTS.md / *.de.md                # prérequis, traductions allemandes
+├── Terms.md                                 # conditions d'utilisation
+├── CV/, data/, .env                         # local uniquement (ignorés par git)
+└── src/
+    ├── main/java/com/claveri/Oneclickapply/
+    │   ├── Application.java                 # point d'entrée Spring Boot
+    │   ├── runner/PipelineRunner.java       # aiguillage selon --mode
+    │   ├── config/OutreachProperties.java   # propriétés outreach.*
+    │   ├── domain/                          # entités JPA Company, CoverLetter, enum ApplicationStatus
+    │   ├── dto/                             # réponses Overpass et Bundesagentur
+    │   ├── repository/                      # repositories Spring Data
+    │   └── service/
+    │       ├── SourcingService.java         # Overpass / OSM
+    │       ├── BundesagenturService.java    # API Jobsuche de la Bundesagentur für Arbeit
+    │       ├── ScraperService.java          # Jsoup, robots.txt, e-mail, stack, score
+    │       ├── DraftService.java            # modèles de mail et de relance
+    │       ├── ReviewCsvService.java        # export/import de review.csv
+    │       └── MailService.java             # envoi Gmail SMTP, quota, délais
+    ├── main/resources/application.properties
+    └── test/java/…                          # ApplicationTests, ScraperServiceTest
+```
+
+## Garde-fous
+
+Résumé ; le détail est dans [`PIPELINE.md`](PIPELINE.md) :
+
+- respect de `robots.txt`, User-Agent qui identifie le bot avec une adresse de contact, au plus 7 pages publiques par site, 1 s entre deux requêtes ;
+- aucun mail ne part sans `x` dans `review.csv`, et une seule candidature par entreprise (domaine unique) ;
+- adresses `noreply@`, `datenschutz@`, `support@`, etc. exclues ;
+- opt-out via `--mode=optout`, qui efface l'adresse de contact.
+
+## Limitations connues
+
+- Le scraper ne lit que le HTML statique : les sites qui génèrent leur contenu en JavaScript (SPA) sont mal couverts, et beaucoup de sites ne publient aucun e-mail en clair.
+- Le texte des mails vient de modèles écrits en dur dans `DraftService`. Il n'y a ni génération par IA ni lettre de motivation en PDF ; le CV est joint tel quel.
+- Les coordonnées de l'expéditeur (nom, téléphone, liens) et l'adresse de contact du User-Agent sont écrites en dur dans `application.properties` et dans `SourcingService` / `ScraperService`. Un fork doit les remplacer.
+- La Javadoc de `PipelineRunner` et `PIPELINE.md` parlent de « 30 mails/jour » et de relances à J+7, alors que la configuration actuelle est `daily-limit=40` avec les relances désactivées.
+- Pas d'API REST ni de frontend.
 
 ## Roadmap
 
-- [ ] Améliorer le taux d'extraction d'emails (fallback JavaScript/Playwright, gestion de l'obfuscation, formulaires de contact).
-- [ ] Implémenter le module IA (Ollama + Spring AI) pour la réécriture des lettres de motivation.
-- [ ] Implémenter le module PDF/LaTeX.
-- [ ] Implémenter le module d'envoi (SMTP + anti-spam/rate limiting).
-- [ ] Exposer une API REST.
-- [ ] Frontend Next.js.
+- [ ] TODO : améliorer le taux d'extraction d'e-mails (rendu JavaScript, obfuscation)
+- [ ] TODO : sortir les données personnelles de l'expéditeur du code et de la config versionnée
+
+## Licence
+
+TODO : aucun fichier `LICENSE` dans le dépôt, donc aucune licence open source n'est accordée pour l'instant. Les conditions d'utilisation sont dans [`Terms.md`](Terms.md).

@@ -29,7 +29,7 @@ public class SourcingService {
         this.companyRepository = companyRepository;
         this.restClient = RestClient.builder()
                 .baseUrl(OVERPASS_API_URL)
-                .defaultHeader("User-Agent", "1ClickApply/1.0 (Initiativbewerbung eines Studenten; Kontakt: monthekamenic@gmail.com)")
+                .defaultHeader("User-Agent", "1ClickApply/1.0 (Initiativbewerbung eines Studenten; Kontakt: xx@gmail.com)")
                 .build();
     }
 
