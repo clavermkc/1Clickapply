@@ -12,6 +12,9 @@ Le pipeline :
 
 Le guide d'utilisation au quotidien se trouve dans [`PIPELINE.md`](PIPELINE.md).
 
+## 🚀 Résultats récents
+Dernière extraction pour la ville de **Berlin** : **885 e-mails exploitables** trouvés pour **1200 entreprises tech** scrappées ! Un taux d'efficacité record pour la prospection.
+
 ## Stack
 
 | | |
