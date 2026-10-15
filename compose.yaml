@@ -1,0 +1,36 @@
+# Une seule image, un service par étape du pipeline. Une seule adresse Gmail (celle du .env).
+# Utilisation : docker compose run --rm <service> [arguments optionnels]
+#   docker compose build
+#   docker compose run --rm source  --mode=source --city=Hamburg
+#   docker compose run --rm scrape  --mode=scrape --city=Hamburg --limit=1000
+#   docker compose run --rm draft
+#   docker compose run --rm export        -> data/review.csv
+#   (validation manuelle : x dans data/review.csv)
+#   docker compose run --rm import
+#   docker compose run --rm send  --mode=send --dry-run
+#   docker compose run --rm send
+
+x-app: &app
+  build: .
+  image: oneclickapply:latest
+  env_file: .env
+  # NEON_DB_URL, PGUSER, PGPASSWORD, GMAIL_USER, GMAIL_APP_PASSWORD, CV_PATH
+  pull_policy: build
+  environment:
+    OUTREACH_REVIEW_CSV_PATH: /app/data/review.csv
+    OUTREACH_FOLLOW_UP_AFTER_DAYS: 9999        # relances automatiques désactivées
+  volumes:
+    - ./CV:/app/CV:ro                 # CV_PATH=CV/CV_Claver.pdf fonctionne tel quel
+    - ./data:/app/data                # review.csv partagé avec ta machine
+    - ./.env:/app/.env:ro             # secours : Spring lit aussi .env directement
+  profiles: ["pipeline"]              # rien ne démarre avec un simple "docker compose up"
+
+services:
+  source:    { <<: *app, command: ["--mode=source"] }
+  source-ba: { <<: *app, command: ["--mode=source-ba"] }
+  scrape:    { <<: *app, command: ["--mode=scrape", "--limit=1000"] }
+  stats:     { <<: *app, command: ["--mode=stats"] }
+  draft:     { <<: *app, command: ["--mode=draft"] }
+  export:    { <<: *app, command: ["--mode=export"] }
+  import:    { <<: *app, command: ["--mode=import"] }
+  send:      { <<: *app, command: ["--mode=send"] }

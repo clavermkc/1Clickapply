@@ -1,0 +1,13 @@
+# Secrets et données personnelles : jamais dans l'image
+.env
+CV/
+data/
+*.pdf
+review.csv
+# Fichiers inutiles au build (sauf le jar dans build/libs)
+build/*
+!build/libs
+.gradle/
+.idea/
+*.bak
+*.bak2
